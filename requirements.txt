@@ -1,0 +1,5 @@
+apache-beam[gcp]==2.49.0
+sentencepiece==0.1.99
+tokenizers==0.13.3
+torch==1.13.1
+transformers==4.30.0

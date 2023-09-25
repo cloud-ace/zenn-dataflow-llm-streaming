@@ -1,0 +1,16 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+apache-beam = {version = "*", extras = ["gcp"]}
+torch = "==1.13.1"
+transformers = "==4.30.0"
+sentencepiece = "==0.1.99"
+
+[dev-packages]
+
+[requires]
+python_version = "3.11"
+python_full_version = "3.11.4"
