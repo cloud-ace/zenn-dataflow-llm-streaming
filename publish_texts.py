@@ -20,7 +20,7 @@ def publish_lines_to_pubsub(bucket_name, file_path, topic_name):
             if line.lstrip().rstrip():
                 pubsub_publisher.publish(topic_name, line.encode("utf-8"))
                 print(f"published: {line}")
-                time.sleep(5)
+                time.sleep(1)
 
 
 def get_args():
@@ -30,7 +30,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--project_id",
-        dest="pubsub_topic_project",
+        dest="project_id",
         required=True,
         help="Pub/Sub topic project id",
     )

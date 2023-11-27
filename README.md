@@ -9,15 +9,26 @@ Zenn記事「Dataflowを使った大規模言語モデル（LLM）のリアル�
 
 ## 環境
 - brew
+- pipenv + pyenv
 - python version: 3.11.4
 
 ## セットアップ
 
+以下のコマンドで必要なライブラリをインストールします。
 ```
-pipenv install
+pip install -r requirements.txt
 ```
 
+pipenvを使っている場合は以下のコマンドでセットアップできます。
+```
+pipenv sync
+pipenv shell
+```
 
+以下を参考にして、git-lfsをインストールします。
+https://github.com/git-lfs/git-lfs/wiki/Installation
+
+例えば、Macの場合（brewを使っている場合）は以下のコマンドでインストールできます。
 ```
 brew install git-lfs
 ```
@@ -38,7 +49,7 @@ pipenv run python convert_to_state_dict.py
 ## 実行
 ### ローカル実行
 ```
-python main.py --runner DirectRunner \
+python local_main.py --runner DirectRunner \
         --model_state_dict_path t5-base-model/state_dict.pth \
         --model_name t5-base
 ```
@@ -47,40 +58,59 @@ python main.py --runner DirectRunner \
 Google Cloud 環境での実行方法を記載する。
 事前に以下の必要なAPIに関しては有効化しておくこと。
 - Dataflow API
-- Cloud Build API
 - Cloud Pub/Sub API
-- Cloud Storage API
-- BigQuery API
-- Artifact Registry API
 
-1. 作成したpthファイルをGCSにアップロードする
+1. プロジェクトIDを使って以下を実行する。
 ```
-gcloud storage cp t5-base-model/state_dict.pth gs://<BUCKET_NAME>/t5-base-model/state_dict.pth
+PROJECT_ID=<your project id> # GCPプロジェクトID
+gcloud config set project $PROJECT_ID
 ```
 
-1. Pub/Sub トピックの作成
+
+2. GCSバケットを作成し、pthファイルをGCSにアップロードする
 ```
-gcloud pubsub topics create <TOPIC_NAME>
+BUCKET=<your bucket name> # GCSバケット名
+gcloud storage buckets create gs://$BUCKET
+gcloud storage cp t5-base-model/state_dict.pth gs://$BUCKET/t5-base-model/state_dict.pth
 ```
 
-1. Dataflowの実行
+3. Pub/Sub トピックの作成
+```
+TOPIC_NAME=<your topic name> # Pub/Subトピック名
+gcloud pubsub topics create $TOPIC_NAME
+```
+
+4. 保存先のBigQueryデータセットの作成
+```
+DATASET_NAME=<your dataset name> # BigQueryデータセット名
+bq --location=US mk --dataset $PROJECT_ID:$DATASET_NAME
+```
+
+5. Dataflowの実行
 ```
 python main.py --runner DataflowRunner \
-        --pubsub_topic projects/ca-tasukuito-test/topics/llm-test \
-        --model_state_dict_path gs://ca-tasukuito-test-llm/t5-base-model/state_dict.pth \
+        --pubsub_topic projects/$PROJECT_ID/topics/$TOPIC_NAME \
+        --model_state_dict_path gs://$BUCKET/t5-base-model/state_dict.pth \
         --model_name t5-base \
-        --table_path ca-tasukuito-test.bqml.dataflow_llm \
-        --project ca-tasukuito-test \
+        --table_path $PROJECT_ID.$DATASET_NAME.dataflow_llm \
+        --project $PROJECT_ID \
         --region us-central1 \
         --requirements_file requirements.txt \
-        --staging_location gs://ca-tasukuito-test-llm/staging \
-        --temp_location gs://ca-tasukuito-test-llm/tmp \
-        --machine_type n2-standard-64 \
-        --streaming \
-        --prebuild_sdk_container_engine cloud_build \
-        --docker_registry_push_url us-central1-docker.pkg.dev/ca-tasukuito-test/dataflow-image \
-        --sdk_location container
+        --staging_location gs://$BUCKET/staging \
+        --temp_location gs://$BUCKET/tmp \
+        --machine_type n1-highmem-16 \ \
+        --disk_size_gb=200 \
+        --streaming
 ```
+
+UI上で起動が確認できたらCtrl+Cで上記コマンドは停止する。
+
+6. Pub/Subにメッセージを送信する
+```
+python publish_texts.py --project_id $PROJECT_ID --topic $TOPIC_NAME
+```
+
+7. 処理を完了する場合は、UI上でDataflowジョブを停止する。
 
 
 ## 免責事項
