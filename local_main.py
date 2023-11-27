@@ -31,32 +31,10 @@ import apache_beam as beam
 from apache_beam.ml.inference.base import RunInference
 from apache_beam.ml.inference.pytorch_inference import PytorchModelHandlerTensor
 from apache_beam.ml.inference.pytorch_inference import make_tensor_model_fn
-from apache_beam.options.pipeline_options import PipelineOptions, SetupOptions
+from apache_beam.options.pipeline_options import PipelineOptions
 from transformers import AutoConfig
 from transformers import AutoTokenizer
 from transformers import T5ForConditionalGeneration
-
-
-class AddTextPrefix(beam.DoFn):
-    def __init__(self, text_prefix):
-        self._text_prefix = text_prefix
-        logging.info(f"text prefix is {text_prefix}")
-
-    def process(self, element):
-        """
-        add translation prefix
-
-        Args:
-            element (str): Pub/Sub message string
-
-        Returns:
-            str: Pub/Sub message with text_prefix
-        """
-        message = element.decode("utf-8")
-        message = message.rstrip().lstrip()
-        prefix_added = self._text_prefix + ": " + message
-        logging.info(f"generated text. {prefix_added}")
-        yield prefix_added
 
 
 class Preprocess(beam.DoFn):
@@ -96,21 +74,12 @@ class Postprocess(beam.DoFn):
             element.example, skip_special_tokens=True)
         decoded_outputs = self._tokenizer.decode(
             element.inference, skip_special_tokens=True)
-        yield {
-            'input_text': decoded_inputs.split(": ")[1],
-            'translated': decoded_outputs
-        }
+        print(f"{decoded_inputs} \t Output: {decoded_outputs}")
 
 
 def parse_args(argv):
     """Parses args for the workflow."""
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--pubsub_topic",
-        dest="pubsub_topic",
-        required=True,
-        help="Pub/Sub topic full path"
-    )
     parser.add_argument(
         "--model_state_dict_path",
         dest="model_state_dict_path",
@@ -122,13 +91,7 @@ def parse_args(argv):
         dest="model_name",
         required=False,
         help="Path to the model's state_dict.",
-        default="t5-base",
-    )
-    parser.add_argument(
-        "--table_path",
-        dest="table_path",
-        required=True,
-        help="Path to the result BigQuery table.",
+        default="t5-11b",
     )
 
     return parser.parse_known_args(args=argv)
@@ -141,7 +104,6 @@ def run():
 
     known_args, pipeline_args = parse_args(sys.argv)
     pipeline_options = PipelineOptions(pipeline_args)
-    pipeline_options.view_as(SetupOptions).save_main_session = True
 
     gen_fn = make_tensor_model_fn('generate')
     model_handler = PytorchModelHandlerTensor(
@@ -153,32 +115,25 @@ def run():
         device="cpu",
         inference_fn=gen_fn)
 
+    eng_sentences = [
+        "The house is wonderful.",
+        "I like to work in NYC.",
+        "My name is Shubham.",
+        "I want to work for Google.",
+        "I am from India."
+    ]
+    task_prefix = "translate English to French: "
+    task_sentences = [task_prefix + sentence for sentence in eng_sentences]
     tokenizer = AutoTokenizer.from_pretrained(known_args.model_name)
-
-    table_schema = {
-        'fields': [{
-            'name': 'input_text', 'type': 'STRING', 'mode': 'REQUIRED'
-        }, {
-            'name': 'translated', 'type': 'STRING', 'mode': 'REQUIRED'
-        }]
-    }
 
     # [START Pipeline]
     with beam.Pipeline(options=pipeline_options) as pipeline:
-        (
+        _ = (
             pipeline
-            | "PubSub Inputs" >> beam.io.ReadFromPubSub(topic=known_args.pubsub_topic)
-            | "Add Text Prefix" >> beam.ParDo(AddTextPrefix(text_prefix="translate English to French"))
+            | "CreateInputs" >> beam.Create(task_sentences)
             | "Preprocess" >> beam.ParDo(Preprocess(tokenizer=tokenizer))
             | "RunInference" >> RunInference(model_handler=model_handler)
-            | "PostProcess" >> beam.ParDo(Postprocess(tokenizer=tokenizer))
-            | "Write BigQuery" >> beam.io.WriteToBigQuery(
-                table=known_args.table_path,
-                schema=table_schema,
-                write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
-                create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED)
-        )
-
+            | "PostProcess" >> beam.ParDo(Postprocess(tokenizer=tokenizer)))
     # [END Pipeline]
 
 

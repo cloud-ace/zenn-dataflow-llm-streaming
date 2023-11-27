@@ -4,10 +4,10 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-apache-beam = {version = "*", extras = ["gcp"]}
-torch = "==1.13.1"
+torch = "==2.0.1"
 transformers = "==4.30.0"
 sentencepiece = "==0.1.99"
+apache-beam = {extras = ["gcp"], version = "==2.50.0"}
 
 [dev-packages]
 
